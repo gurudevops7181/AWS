@@ -9,7 +9,7 @@ Each module is independent and includes its own README for setup and usage.
 
 | Module | Description | Link |
 |--------|--------------|------|
-| **Schedule-start-stop-ec2** | Automates scheduled start and stop of EC2 instances. | [View Details](https://github.com/gurudevops7181/AWS/blob/main/lambda/Schedule-start-stop-ec2/%F0%9F%A7%A0%20README.md |
+| **Schedule-start-stop-ec2** | Automates scheduled start and stop of EC2 instances. | [View Details](./Schedule-start-stop-ec2/README.md) |
 | **schedule-Deregister** | Deregisters EC2 instances from target groups for maintenance or scaling down. | [View Details](./schedule-Deregister/README.md) |
 | **schedule-Register** | Registers EC2 instances back into target groups after maintenance or scaling up. | [View Details](./schedule-Register/README.md) |
 | **unhealthy-target-groups** | Monitors target groups and removes unhealthy targets automatically. | [View Details](./unhealthy-target-groups/README.md) |
