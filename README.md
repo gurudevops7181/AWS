@@ -13,6 +13,13 @@ and target health notifications.
 | Unhealthy target notifications | Sends SNS alerts for newly unhealthy targets. | [README](./lambda/unhealthy-target-groups/README.md) |
 | Find target groups by IP | Finds target groups containing one or more IP addresses. | [README](./find-elb-target-by-ip/README.md) |
 
+## GitHub Actions
+
+The [scheduled target deregistration workflow](./.github/workflows/schedule-deregister.yml)
+runs daily on a `self-hosted` runner at 10:50, 10:55, and 11:00 IST. It can
+also be started manually from the Actions tab. The runner needs AWS credentials
+with the permissions described in the [deregistration guide](./lambda/schedule-Deregister/README.md).
+
 ## Runtime and deployment
 
 The Lambda examples target Python 3.13. Choose a currently supported managed

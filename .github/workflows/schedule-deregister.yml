@@ -1,0 +1,38 @@
+name: Scheduled target deregistration
+
+on:
+  schedule:
+    # 10:50, 10:55, and 11:00 IST (GitHub Actions cron uses UTC).
+    - cron: '20,25,30 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-target-deregistration
+  cancel-in-progress: false
+
+jobs:
+  deregister:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: lambda/schedule-Deregister
+    env:
+      AWS_DEFAULT_REGION: ap-south-1
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Deregister scheduled targets
+        run: python schedule-Deregister.py

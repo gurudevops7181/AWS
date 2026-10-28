@@ -50,3 +50,12 @@ retry policy can handle them.
 The current code contains a 10:50 schedule key with a 10:50–11:00 IST window.
 Configure EventBridge to invoke the function during that period. Update both
 the file entries and the start_tag_times dictionary when adding schedules.
+
+## GitHub Actions workflow
+
+The repository workflow at `.github/workflows/schedule-deregister.yml` runs
+this script on the `self-hosted` runner at 10:50, 10:55, and 11:00 IST, and can
+also be started manually from the Actions tab. It sets the AWS region to
+`ap-south-1`; the runner must have AWS credentials with the permissions listed
+above. The script still checks its configured IST window, so manual runs
+outside that window do not deregister targets.
