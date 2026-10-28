@@ -1,6 +1,7 @@
 import boto3
 from datetime import datetime, timezone, timedelta
 import re
+from pathlib import Path
 
 # Initialize the boto3 clients
 elbv2_client = boto3.client('elbv2')
@@ -34,11 +35,27 @@ def deregister_instances_from_target_group(target_group_arn, instance_ids):
 
         targets = []
         if target_type == 'instance':
-            targets = [{'Id': instance_id} for instance_id in instance_ids]
+            targets = [{'Id': instance_id} for instance_id in dict.fromkeys(instance_ids)]
         elif target_type == 'ip':
-            targets = [{'Id': get_instance_private_ip(instance_id)} for instance_id in instance_ids]
+            targets = [
+                {'Id': get_instance_private_ip(instance_id)}
+                for instance_id in dict.fromkeys(instance_ids)
+            ]
         else:
             raise ValueError("Unsupported target type.")
+
+        health_response = elbv2_client.describe_target_health(
+            TargetGroupArn=target_group_arn
+        )
+        registered_ids = {
+            description['Target']['Id']
+            for description in health_response.get('TargetHealthDescriptions', [])
+            if description.get('TargetHealth', {}).get('State') != 'draining'
+        }
+        targets = [target for target in targets if target['Id'] in registered_ids]
+        if not targets:
+            print(f"No requested targets are currently registered in {target_group_arn}.")
+            return None
 
         response = elbv2_client.deregister_targets(
             TargetGroupArn=target_group_arn,
@@ -75,52 +92,57 @@ def process_file_for_deregister(file_content):
         # Add more time slots if needed
     }
 
-    for line in file_content.strip().split('\n'):
-        match = re.match(r'\[(.*?)\]\[(.*?)\]\[(.*?)\]', line.strip())
-        if match:
-            target_group_arn = match.group(1)
-            instance_ids = match.group(2).split(',')
-            scheduled_time = match.group(3)
+    for line in file_content.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
 
-            # Check if the scheduled time falls within the current time range
-            if scheduled_time in start_tag_times:
-                start_time, end_time = start_tag_times[scheduled_time]
-                if time_in_range(start_time, end_time, current_time):
-                    print(f"Current time {current_time} is within the range {start_time} - {end_time} for deregistration.")
-                    if target_group_arn in target_group_to_instances:
-                        target_group_to_instances[target_group_arn].extend(instance_ids)
-                    else:
-                        target_group_to_instances[target_group_arn] = instance_ids
+        match = re.fullmatch(r'\[([^\]]+)\]\[([^\]]+)\]\[([^\]]+)\]', line)
+        if not match:
+            print(f"Skipping invalid configuration line: {line}")
+            continue
+
+        target_group_arn = match.group(1).strip()
+        instance_ids = [
+            instance_id.strip()
+            for instance_id in match.group(2).split(',')
+            if instance_id.strip()
+        ]
+        scheduled_time = match.group(3).strip()
+        if not instance_ids:
+            print(f"Skipping configuration with no instance IDs: {line}")
+            continue
+
+        # Check if the scheduled time falls within the current time range
+        if scheduled_time in start_tag_times:
+            start_time, end_time = start_tag_times[scheduled_time]
+            if time_in_range(start_time, end_time, current_time):
+                print(f"Current time {current_time} is within the range {start_time} - {end_time} for deregistration.")
+                if target_group_arn in target_group_to_instances:
+                    target_group_to_instances[target_group_arn].extend(instance_ids)
                 else:
-                    print(f"Current time {current_time} does not fall within the scheduled time range {start_time} - {end_time}.")
+                    target_group_to_instances[target_group_arn] = instance_ids
             else:
-                print(f"Scheduled time {scheduled_time} does not have a defined range.")
+                print(f"Current time {current_time} does not fall within the scheduled time range {start_time} - {end_time}.")
+        else:
+            print(f"Scheduled time {scheduled_time} does not have a defined range.")
 
     for target_group_arn, instance_ids in target_group_to_instances.items():
         deregister_instances_from_target_group(target_group_arn, instance_ids)
 
 def lambda_handler(event, context):
     """Lambda handler function."""
-    # Read the file content from the Lambda's environment (assuming the file is in the /tmp directory)
-    file_path = 'target_instances.txt'
+    # Keep the configuration beside the function so the same path works locally
+    # and when both files are included in the Lambda deployment package.
+    file_path = Path(__file__).with_name('target_instances.txt')
 
     try:
-        with open(file_path, 'r') as file:
+        with file_path.open('r', encoding='utf-8') as file:
             file_content = file.read()
     except Exception as e:
-        return {
-            'statusCode': 500,
-            'body': f"Error reading file from Lambda environment: {e}"
-        }
+        raise RuntimeError(f"Error reading {file_path}: {e}") from e
 
-    # Process the file content
-    try:
-        process_file_for_deregister(file_content)
-    except Exception as e:
-        return {
-            'statusCode': 500,
-            'body': f"Error processing file: {e}"
-        }
+    process_file_for_deregister(file_content)
 
     return {
         'statusCode': 200,

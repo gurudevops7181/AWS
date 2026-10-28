@@ -1,90 +1,58 @@
-# AWS Lambda: Unhealthy Target Group Monitor 🚨
+# Unhealthy target notifications
 
-This AWS Lambda function monitors **unhealthy EC2 instances** in **Application Load Balancer (ALB) Target Groups** based on **CloudWatch alarms** and sends notifications through **Amazon SNS**.
+This Lambda receives CloudWatch alarm notifications through SNS, checks the
+mapped target group's health, and sends an SNS message for each newly unhealthy
+target. It supports instance and IP targets. Instance targets are resolved to
+their EC2 private IP for the notification.
 
----
+The function uses DynamoDB to remember which targets have already been
+notified. Duplicate alarm events do not repeat alerts. State is cleared when
+the alarm returns to OK or a target is no longer unhealthy, so a later failure
+can produce a new alert.
 
-## 📋 **Overview**
+## Lambda configuration
 
-This script performs the following tasks:
+Set these environment variables:
 
-- Listens to **CloudWatch Alarm** notifications via **SNS**.
-- Checks the **Target Group health** using the **ELBv2 API**.
-- Verifies the **alarm state** (`OK` or `ALARM`).
-- Retrieves **private IPs** of unhealthy EC2 instances.
-- Publishes a detailed **SNS alert message** for any new unhealthy instances detected.
+- TARGET_GROUP_ARNS: JSON object mapping each CloudWatch alarm name to a target
+  group ARN.
+- SNS_TOPIC_ARN: ARN of the topic that receives the outgoing notifications.
+- UNHEALTHY_TARGETS_TABLE: name of the DynamoDB table used for deduplication.
 
----
+Example TARGET_GROUP_ARNS value:
 
-## ⚙️ **AWS Services Used**
+    {"UnHealthyHostCount-my-target-group":"arn:aws:elasticloadbalancing:ap-south-1:123456789012:targetgroup/my-target-group/abcd1234"}
 
-- **AWS Lambda** — To run the script automatically on SNS trigger.  
-- **Amazon CloudWatch** — To monitor target group health metrics.  
-- **Elastic Load Balancer (ALB)** — Source of Target Groups and instance health.  
-- **Amazon SNS** — For sending alert notifications.  
-- **Amazon EC2** — To fetch instance details such as private IP.
+The DynamoDB table must have a string partition key named alarm_name and a
+string sort key named target_id. The function stores the mapped target group
+ARN and a notified_at timestamp with each target. State is tracked per alarm.
 
----
+Configure each CloudWatch alarm to publish to an input SNS topic, then
+subscribe this Lambda to that topic. Use a separate topic for SNS_TOPIC_ARN;
+publishing back to the input topic can trigger the function recursively.
 
-## 🧩 **Environment Setup**
+## IAM permissions
 
+Grant the Lambda execution role:
 
-### 1️⃣ Clone this repository
-```bash
-git clone git@github.com:gurudevops7181/AWS.git
-cd AWS
+- elasticloadbalancing:DescribeTargetHealth
+- ec2:DescribeInstances
+- cloudwatch:DescribeAlarms (fallback for alarm messages without NewStateValue)
+- dynamodb:Query
+- dynamodb:PutItem
+- dynamodb:DeleteItem
+- sns:Publish
 
+Scope DynamoDB actions to the deduplication table and sns:Publish to the
+outgoing SNS topic ARN.
 
+## Deployment
 
+Use a currently supported Python Lambda runtime; Python 3.13 is the documented
+target for this repository. Include unhealthy-target-groups.py and the
+dependencies from requirements.txt in the deployment package.
 
-
-2️⃣ Install dependencies (for local testing)
-
-pip install boto3
-
-
-Inside the lambda_handler() function, update:
-
-target_group_arns = {
-    'cloudwatch alarm-name': "Target-group-arn",  # Replace with actual values
-}
-sns_topic_arn = "SNS-TOPIC-NAME"  # Replace with your SNS topic ARN
-
-
-
-
-🧠 How It Works
-	1.	Lambda is triggered by an SNS topic subscribed to CloudWatch alarms.
-	2.	The function extracts the AlarmName and matches it with the Target Group ARN.
-	3.	It calls describe_target_health() to find unhealthy instances.
-	4.	If the instance is unhealthy and the alarm state is ALARM, it sends a notification to SNS.
-	5.	Duplicate notifications are avoided by tracking previously unhealthy instances within the Lambda context.
-
-
-New unhealthy instances detected with Alarm State ALARM:
-Target Group: arn:aws:elasticloadbalancing:ap-south-1:123456789012:targetgroup/my-tg/abcd1234
-ID: i-0123456789abcdef0
-Private IP: 10.0.2.45
-Alarm State: ALARM
-Timestamp: 2025-10-22T11:45:31.123Z
-
-
-
-🧰 IAM Permissions Required
-{
-  "Effect": "Allow",
-  "Action": [
-    "ec2:DescribeInstances",
-    "cloudwatch:DescribeAlarms",
-    "elasticloadbalancing:DescribeTargetHealth",
-    "sns:Publish"
-  ],
-  "Resource": "*"
-}
-
-
-🧑‍💻 Author
-Gurunadh Chippada
-DevOps Engineer | AWS | Automation | Docker | Terraform | K8s | ansible | Gitlab
-📧 gurujames7181@gmail.com
-🌐 https://www.linkedin.com/in/chippada-gurunadh-2b71271b4/
+The code reads alarm names and target group ARNs from environment variables;
+there are no placeholder ARNs or SNS topic names in the Python file.
+Processing and publish errors are raised so the Lambda/SNS retry policy can
+retry the alarm notification.

@@ -2,7 +2,7 @@ import boto3
 from datetime import datetime, timezone, timedelta
 
 # Initialize EC2 resource
-ec2 = boto3.resource('ec2', region_name='ap-south-1')
+ec2 = boto3.resource('ec2')
 
 # Tag keys
 start_tag_key = 'scheduleStart'
@@ -22,6 +22,7 @@ def print_instances_by_tag(key, value):
         return []
 
 def start_instances(instances):
+    failures = []
     for instance_id, state in instances:
         if state == 'stopped':
             try:
@@ -29,10 +30,14 @@ def start_instances(instances):
                 ec2.Instance(instance_id).start()
             except Exception as e:
                 print(f"[ERROR] Failed to start instance {instance_id}: {e}")
+                failures.append(f"{instance_id}: {e}")
         else:
             print(f"[SKIP] Instance {instance_id} is in '{state}' state")
+    if failures:
+        raise RuntimeError("Failed to start instances: " + "; ".join(failures))
 
 def stop_instances(instances):
+    failures = []
     for instance_id, state in instances:
         if state == 'running':
             try:
@@ -40,8 +45,11 @@ def stop_instances(instances):
                 ec2.Instance(instance_id).stop()
             except Exception as e:
                 print(f"[ERROR] Failed to stop instance {instance_id}: {e}")
+                failures.append(f"{instance_id}: {e}")
         else:
             print(f"[SKIP] Instance {instance_id} is in '{state}' state")
+    if failures:
+        raise RuntimeError("Failed to stop instances: " + "; ".join(failures))
 
 def lambda_handler(event, context):
     # Current time in IST
@@ -80,14 +88,14 @@ def lambda_handler(event, context):
 
     # Start logic
     for tag_value, (start_time, end_time) in start_tag_times.items():
-        if start_time <= current_time <= end_time:
+        if start_time <= current_time < end_time:
             print(f"[MATCH] Time matched for Start Tag: {tag_value}")
             instances = print_instances_by_tag(start_tag_key, tag_value)
             start_instances(instances)
 
     # Stop logic
     for tag_value, (start_time, end_time) in stop_tag_times.items():
-        if start_time <= current_time <= end_time:
+        if start_time <= current_time < end_time:
             print(f"[MATCH] Time matched for Stop Tag: {tag_value}")
             instances = print_instances_by_tag(stop_tag_key, tag_value)
             stop_instances(instances)

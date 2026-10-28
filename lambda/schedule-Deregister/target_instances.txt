@@ -1,1 +1,2 @@
-[Target-group-ARN][Instance-IDs][10:50]
+# Add one entry per target group and schedule:
+# [target-group-arn][i-0123456789abcdef0,i-0987654321abcdef0][10:50]
